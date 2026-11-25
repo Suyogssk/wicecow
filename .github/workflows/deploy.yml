@@ -49,7 +49,7 @@ jobs:
   deploy:
     needs: build
     if: ${{ vars.DEPLOY_TO_K8S == 'true' }}
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Windows, X64]
     steps:
       - name: Check out manifests
         uses: actions/checkout@v4
@@ -57,23 +57,22 @@ jobs:
       - name: Configure kubectl
         uses: azure/setup-kubectl@v4
 
-      - name: Load cluster credentials
-        shell: bash
-        env:
-          KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
-        run: |
-          mkdir -p "$HOME/.kube"
-          printf '%s' "$KUBE_CONFIG" > "$HOME/.kube/config"
-          chmod 600 "$HOME/.kube/config"
-
       - name: Apply manifests and roll out image
+        shell: pwsh
         env:
           IMAGE: ${{ needs.build.outputs.image }}:${{ github.sha }}
           KUBE_NAMESPACE: ${{ vars.KUBE_NAMESPACE }}
         run: |
-          NAMESPACE="${KUBE_NAMESPACE:-default}"
-          kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
-          kubectl apply -n "$NAMESPACE" -f k8s/deployment.yaml
-          kubectl apply -n "$NAMESPACE" -f k8s/ingress.yaml
-          kubectl set image -n "$NAMESPACE" deployment/wisecow "wisecow=$IMAGE"
-          kubectl rollout status -n "$NAMESPACE" deployment/wisecow --timeout=180s
+          $namespace = if ($env:KUBE_NAMESPACE) { $env:KUBE_NAMESPACE } else { 'wisecow' }
+          kubectl config use-context minikube
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          kubectl get namespace $namespace *> $null
+          if ($LASTEXITCODE -ne 0) { kubectl create namespace $namespace }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          kubectl apply -n $namespace -f k8s/deployment.yaml
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          kubectl apply -n $namespace -f k8s/ingress.yaml
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          kubectl set image -n $namespace deployment/wisecow "wisecow=$env:IMAGE"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          kubectl rollout status -n $namespace deployment/wisecow --timeout=180s

@@ -84,10 +84,9 @@ curl -k --resolve wisecow.test:10443:127.0.0.1 https://wisecow.test:10443/
 
 ## GitHub Actions CI/CD
 
-`.github/workflows/deploy.yml` builds and pushes a commit-tagged image and `latest` to GHCR on pushes to `main`, then updates the Kubernetes deployment. Add these settings under **Settings > Secrets and variables > Actions**:
+`.github/workflows/deploy.yml` builds and pushes a commit-tagged image and `latest` to GHCR on pushes to `main`. Its deploy job uses a Windows self-hosted runner on the same PC as Minikube. Register the runner for this repository, run it as the Windows user that owns the Minikube context, and keep Docker Desktop and Minikube running. Add these settings under **Settings > Secrets and variables > Actions**:
 
-- Secret `KUBE_CONFIG`: the kubeconfig content for a service account permitted to manage the deployment and ingress in the target namespace.
 - Variable `KUBE_NAMESPACE`: namespace to deploy into (for example, `wisecow`). It is created by the workflow if needed.
-- Variable `DEPLOY_TO_K8S`: set to `true` only when the configured runner can reach the cluster. Until then, pushes build and publish the image but skip deployment.
+- Variable `DEPLOY_TO_K8S`: set to `true` after the self-hosted runner is online. Until then, pushes build and publish the image but skip deployment.
 
 The GHCR package must be pullable by the cluster. Set the ingress hostname in `k8s/ingress.yaml` before enabling deploys. Configure repository visibility separately in GitHub to match the assessment requirement; this workflow does not change repository settings.
