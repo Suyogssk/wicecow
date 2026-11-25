@@ -65,5 +65,6 @@ The Service is internal to the cluster; the Ingress routes HTTPS traffic to it a
 
 - Secret `KUBE_CONFIG`: the kubeconfig content for a service account permitted to manage the deployment and ingress in the target namespace.
 - Variable `KUBE_NAMESPACE`: namespace to deploy into (for example, `wisecow`). It is created by the workflow if needed.
+- Variable `DEPLOY_TO_K8S`: set to `true` only when the configured runner can reach the cluster. Until then, pushes build and publish the image but skip deployment.
 
 The GHCR package must be pullable by the cluster. Set `wisecow.example.com` in the ingress manifest before enabling deploys. Configure repository visibility separately in GitHub to match the assessment requirement; this workflow does not change repository settings.

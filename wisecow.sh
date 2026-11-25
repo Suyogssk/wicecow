@@ -14,14 +14,10 @@ get_api() {
 handleRequest() {
     # 1) Process the request
 	get_api
-	mod=`fortune`
+	mod="$(fortune)"
+	cow="$(cowsay "$mod")"
 
-cat <<EOF > $RSPFILE
-HTTP/1.1 200
-
-
-<pre>`cowsay $mod`</pre>
-EOF
+	printf 'HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nConnection: close\r\n\r\n<pre>%s</pre>\r\n' "$cow" > "$RSPFILE"
 }
 
 prerequisites() {

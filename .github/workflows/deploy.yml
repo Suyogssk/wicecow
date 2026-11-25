@@ -48,6 +48,7 @@ jobs:
 
   deploy:
     needs: build
+    if: ${{ vars.DEPLOY_TO_K8S == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: Check out manifests

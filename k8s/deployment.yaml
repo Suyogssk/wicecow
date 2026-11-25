@@ -20,7 +20,7 @@ spec:
         runAsGroup: 10001
       containers:
         - name: wisecow
-          image: ghcr.io/REPLACE_WITH_OWNER/wisecow:latest
+          image: ghcr.io/suyogssk/wicecow:latest
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
