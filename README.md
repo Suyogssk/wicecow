@@ -84,9 +84,6 @@ curl -k --resolve wisecow.test:10443:127.0.0.1 https://wisecow.test:10443/
 
 ## GitHub Actions CI/CD
 
-`.github/workflows/deploy.yml` builds and pushes a commit-tagged image and `latest` to GHCR on pushes to `main`. Its deploy job uses a Windows self-hosted runner on the same PC as Minikube. Register the runner for this repository, run it as the Windows user that owns the Minikube context, and keep Docker Desktop and Minikube running. Add these settings under **Settings > Secrets and variables > Actions**:
+`.github/workflows/deploy.yml` builds and pushes a commit-tagged image and `latest` to GHCR on pushes to `main`, then deploys the commit image to a temporary Kind cluster with Traefik and a self-signed TLS certificate. The workflow checks that HTTPS returns the Wisecow page. The temporary cluster is deleted when the job ends, so it demonstrates deployment without keeping a public service running. Standard GitHub-hosted runners are free for public repositories.
 
-- Variable `KUBE_NAMESPACE`: namespace to deploy into (for example, `wisecow`). It is created by the workflow if needed.
-- Variable `DEPLOY_TO_K8S`: set to `true` after the self-hosted runner is online. Until then, pushes build and publish the image but skip deployment.
-
-The GHCR package must be pullable by the cluster. Set the ingress hostname in `k8s/ingress.yaml` before enabling deploys. Configure repository visibility separately in GitHub to match the assessment requirement; this workflow does not change repository settings.
+The GHCR package must be pullable by the workflow. For a persistent deployment, use a cluster you can reach and a trusted certificate for its hostname; the repository remains configured to build and validate the image and Kubernetes/TLS deployment in the temporary cluster. Configure repository visibility separately in GitHub to match the assessment requirement; this workflow does not change repository settings.

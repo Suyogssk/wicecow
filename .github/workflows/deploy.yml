@@ -42,37 +42,98 @@ jobs:
         with:
           context: .
           push: true
+          labels: org.opencontainers.image.source=https://github.com/${{ github.repository }}
           tags: |
             ${{ steps.image.outputs.name }}:${{ github.sha }}
             ${{ steps.image.outputs.name }}:latest
 
   deploy:
     needs: build
-    if: ${{ vars.DEPLOY_TO_K8S == 'true' }}
-    runs-on: [self-hosted, Windows, X64]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
     steps:
       - name: Check out manifests
         uses: actions/checkout@v4
 
-      - name: Configure kubectl
-        uses: azure/setup-kubectl@v4
+      - name: Create temporary Kubernetes cluster
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: wisecow
 
-      - name: Apply manifests and roll out image
-        shell: pwsh
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Load published image into Kind
         env:
           IMAGE: ${{ needs.build.outputs.image }}:${{ github.sha }}
-          KUBE_NAMESPACE: ${{ vars.KUBE_NAMESPACE }}
+          LATEST_IMAGE: ${{ needs.build.outputs.image }}:latest
         run: |
-          $namespace = if ($env:KUBE_NAMESPACE) { $env:KUBE_NAMESPACE } else { 'wisecow' }
-          kubectl config use-context minikube
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          kubectl get namespace $namespace *> $null
-          if ($LASTEXITCODE -ne 0) { kubectl create namespace $namespace }
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          kubectl apply -n $namespace -f k8s/deployment.yaml
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          kubectl apply -n $namespace -f k8s/ingress.yaml
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          kubectl set image -n $namespace deployment/wisecow "wisecow=$env:IMAGE"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          kubectl rollout status -n $namespace deployment/wisecow --timeout=180s
+          docker pull "$IMAGE"
+          docker tag "$IMAGE" "$LATEST_IMAGE"
+          kind load docker-image "$IMAGE" "$LATEST_IMAGE" --name wisecow
+
+      - name: Install Traefik ingress controller
+        run: |
+          helm repo add traefik https://traefik.github.io/charts
+          helm repo update
+          helm upgrade --install traefik traefik/traefik \
+            --namespace traefik --create-namespace \
+            --set ingressClass.enabled=true \
+            --set ingressClass.name=traefik \
+            --set ingressClass.isDefaultClass=false \
+            --set providers.kubernetesIngress.enabled=true \
+            --wait --timeout 180s
+
+      - name: Create local TLS secret
+        run: |
+          kubectl create namespace wisecow --dry-run=client -o yaml | kubectl apply -f -
+          openssl req -x509 -newkey rsa:2048 -nodes -keyout /tmp/wisecow.test.key \
+            -out /tmp/wisecow.test.crt -days 1 -subj "/CN=wisecow.test" \
+            -addext "subjectAltName=DNS:wisecow.test"
+          kubectl create secret tls wisecow-tls -n wisecow \
+            --cert=/tmp/wisecow.test.crt --key=/tmp/wisecow.test.key \
+            --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Deploy Wisecow
+        env:
+          IMAGE: ${{ needs.build.outputs.image }}:${{ github.sha }}
+        run: |
+          kubectl apply -n wisecow -f k8s/deployment.yaml
+          kubectl set image -n wisecow deployment/wisecow "wisecow=$IMAGE"
+          kubectl apply -n wisecow -f k8s/ingress.yaml
+          kubectl rollout status -n wisecow deployment/wisecow --timeout=180s
+
+      - name: Verify HTTPS ingress response
+        shell: bash
+        run: |
+          set -euo pipefail
+          kubectl port-forward -n traefik svc/traefik 10443:443 >/tmp/wisecow-port-forward.log 2>&1 &
+          port_forward_pid=$!
+          trap 'kill "$port_forward_pid" 2>/dev/null || true' EXIT
+
+          status_code=000
+          for attempt in $(seq 1 30); do
+            status_code=$(curl --silent --insecure --output /tmp/wisecow-response.html \
+              --write-out '%{http_code}' --resolve wisecow.test:10443:127.0.0.1 \
+              https://wisecow.test:10443/ || true)
+            if [ "$status_code" = "200" ]; then
+              break
+            fi
+            sleep 2
+          done
+
+          if [ "$status_code" != "200" ]; then
+            cat /tmp/wisecow-port-forward.log
+            echo "HTTPS request returned HTTP $status_code"
+            exit 1
+          fi
+          grep -q '<pre>' /tmp/wisecow-response.html
