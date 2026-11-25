@@ -122,7 +122,7 @@ jobs:
             exit 1
           fi
 
-          mapfile -t pod_names < <(kubectl get pods -n wisecow -l app.kubernetes.io/name=wisecow -o jsonpath='{.items[*].metadata.name}' | xargs -n1)
+          mapfile -t pod_names < <(kubectl get pods -n wisecow -l app.kubernetes.io/name=wisecow -o json | jq -r '.items[] | select(.metadata.deletionTimestamp == null) | .metadata.name')
           if [ "${#pod_names[@]}" -ne 2 ]; then
             echo "Expected 2 Wisecow pods, found ${#pod_names[@]}"
             exit 1
