@@ -2,16 +2,14 @@ apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: wisecow
-  annotations:
-    nginx.ingress.kubernetes.io/ssl-redirect: "true"
 spec:
-  ingressClassName: nginx
+  ingressClassName: traefik
   tls:
     - hosts:
-        - wisecow.example.com
+        - wisecow.test
       secretName: wisecow-tls
   rules:
-    - host: wisecow.example.com
+    - host: wisecow.test
       http:
         paths:
           - path: /

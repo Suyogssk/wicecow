@@ -3,7 +3,7 @@
 ## Prerequisites
 
 ```
-sudo apt install fortune-mod cowsay -y
+sudo apt install fortune-mod fortunes-min cowsay netcat-openbsd -y
 ```
 
 ## How to use?
@@ -40,9 +40,9 @@ Open <http://localhost:4499>. The image installs the app's runtime dependencies 
 
 ## Kubernetes deployment
 
-Requirements: a Kubernetes cluster, `kubectl`, an NGINX Ingress Controller, a DNS name pointing to the ingress controller, and a TLS certificate/key for that name.
+Requirements: a Kubernetes cluster, `kubectl`, a Traefik Ingress Controller, a DNS name pointing to the ingress controller, and a TLS certificate/key for that name.
 
-1. Replace `wisecow.example.com` in `k8s/ingress.yaml` with your DNS name.
+1. Replace `wisecow.test` in `k8s/ingress.yaml` with your DNS name.
 2. Create the TLS secret in the namespace where the app will run:
 
    ```sh
@@ -50,7 +50,7 @@ Requirements: a Kubernetes cluster, `kubectl`, an NGINX Ingress Controller, a DN
    kubectl create secret tls wisecow-tls -n wisecow --cert=fullchain.pem --key=privkey.pem
    ```
 
-3. In `k8s/deployment.yaml`, replace `ghcr.io/REPLACE_WITH_OWNER/wisecow:latest` with your GHCR image name, then deploy:
+3. Confirm the image in `k8s/deployment.yaml` points to your GHCR package, then deploy:
 
    ```sh
    kubectl apply -n wisecow -f k8s/deployment.yaml
@@ -59,12 +59,35 @@ Requirements: a Kubernetes cluster, `kubectl`, an NGINX Ingress Controller, a DN
 
 The Service is internal to the cluster; the Ingress routes HTTPS traffic to it and terminates TLS using `wisecow-tls`. Ensure the cluster can pull the GHCR package. For a private package, configure a registry pull secret for the `wisecow` service account in the deployment namespace.
 
+### Local Minikube TLS demo
+
+The checked-in ingress host `wisecow.test` is for local testing. On Minikube v1.39 or newer, enable the Traefik addon:
+
+```sh
+minikube addons enable traefik
+```
+
+Create a self-signed certificate and the TLS secret (the browser will show a certificate warning):
+
+```sh
+openssl req -x509 -newkey rsa:2048 -nodes -keyout wisecow.test.key -out wisecow.test.crt -days 30 -subj "/CN=wisecow.test" -addext "subjectAltName=DNS:wisecow.test"
+kubectl create secret tls wisecow-tls -n wisecow --cert=wisecow.test.crt --key=wisecow.test.key
+kubectl apply -n wisecow -f k8s/ingress.yaml
+```
+
+Forward Traefik's HTTPS port and test the ingress:
+
+```sh
+kubectl port-forward -n kube-system svc/traefik 10443:443
+curl -k --resolve wisecow.test:10443:127.0.0.1 https://wisecow.test:10443/
+```
+
 ## GitHub Actions CI/CD
 
-`.github/workflows/deploy.yml` builds and pushes a commit-tagged image and `latest` to GHCR on pushes to `main`, then updates the Kubernetes deployment. Add these settings under **Settings → Secrets and variables → Actions**:
+`.github/workflows/deploy.yml` builds and pushes a commit-tagged image and `latest` to GHCR on pushes to `main`, then updates the Kubernetes deployment. Add these settings under **Settings > Secrets and variables > Actions**:
 
 - Secret `KUBE_CONFIG`: the kubeconfig content for a service account permitted to manage the deployment and ingress in the target namespace.
 - Variable `KUBE_NAMESPACE`: namespace to deploy into (for example, `wisecow`). It is created by the workflow if needed.
 - Variable `DEPLOY_TO_K8S`: set to `true` only when the configured runner can reach the cluster. Until then, pushes build and publish the image but skip deployment.
 
-The GHCR package must be pullable by the cluster. Set `wisecow.example.com` in the ingress manifest before enabling deploys. Configure repository visibility separately in GitHub to match the assessment requirement; this workflow does not change repository settings.
+The GHCR package must be pullable by the cluster. Set the ingress hostname in `k8s/ingress.yaml` before enabling deploys. Configure repository visibility separately in GitHub to match the assessment requirement; this workflow does not change repository settings.
