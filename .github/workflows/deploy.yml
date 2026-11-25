@@ -112,6 +112,29 @@ jobs:
           kubectl apply -n wisecow -f k8s/ingress.yaml
           kubectl rollout status -n wisecow deployment/wisecow --timeout=180s
 
+      - name: Verify replicas and non-root runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          ready_replicas=$(kubectl get deployment wisecow -n wisecow -o jsonpath='{.status.readyReplicas}')
+          if [ "$ready_replicas" != "2" ]; then
+            echo "Expected 2 ready replicas, found ${ready_replicas:-0}"
+            exit 1
+          fi
+
+          mapfile -t pod_names < <(kubectl get pods -n wisecow -l app.kubernetes.io/name=wisecow -o jsonpath='{.items[*].metadata.name}' | xargs -n1)
+          if [ "${#pod_names[@]}" -ne 2 ]; then
+            echo "Expected 2 Wisecow pods, found ${#pod_names[@]}"
+            exit 1
+          fi
+          for pod in "${pod_names[@]}"; do
+            uid=$(kubectl exec -n wisecow "$pod" -- id -u)
+            if [ "$uid" != "10001" ]; then
+              echo "Expected pod $pod to run as UID 10001, found $uid"
+              exit 1
+            fi
+          done
+
       - name: Verify HTTPS ingress response
         shell: bash
         run: |
@@ -122,7 +145,7 @@ jobs:
 
           status_code=000
           for attempt in $(seq 1 30); do
-            status_code=$(curl --silent --insecure --output /tmp/wisecow-response.html \
+            status_code=$(curl --silent --cacert /tmp/wisecow.test.crt --output /tmp/wisecow-response.html \
               --write-out '%{http_code}' --resolve wisecow.test:10443:127.0.0.1 \
               https://wisecow.test:10443/ || true)
             if [ "$status_code" = "200" ]; then
